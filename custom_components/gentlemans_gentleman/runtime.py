@@ -178,9 +178,13 @@ class ButlerRuntime:
         if not seconds:
             self.hass.async_create_task(self.async_run(reason))
             return
-        self.entry.async_on_unload(async_call_later(
-            self.hass, seconds,
-            lambda _n: self.hass.async_create_task(self.async_run(reason))))
+        # 直接把 async 函数交给 async_call_later，让 HA 自己决定在哪个上下文里起任务。
+        # 之前写成 lambda: hass.async_create_task(...) 被 HA 的线程保护当场抓住：
+        # 定时器回调里再手动起任务，等于绕过了它对"谁在什么线程上碰循环"的约定。
+        async def delayed(_now=None) -> None:
+            await self.async_run(reason)
+
+        self.entry.async_on_unload(async_call_later(self.hass, seconds, delayed))
 
     async def async_run(self, reason: str, samples: int = 1) -> dict[str, PolicyStatus]:
         """跑一轮。`samples` > 1 就是**试跑**——同一条路径，只是多采几次（ADR-0009）。
