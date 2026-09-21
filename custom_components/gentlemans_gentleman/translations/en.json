@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Jev",
+        "description": "This integration uses a fast intuitive model to decide *what state the home is in right now*. The built-in first provider is Jev (`api.typesafe.ai`), and it needs your API key.\n\n**What happens next**: we send one very short probe request (its content is literally \"did this message get through?\" — no home data at all) to confirm the key works. That also pays the cross-border TLS handshake now, while you are filling in the form, instead of during a 2am trigger.\n\n**About how this key is stored, said up front**: Home Assistant keeps integration configuration in plain text under `.storage` (file mode 0644); the platform gives integrations no way to encrypt it. What we can promise instead is that the key never reaches logs or traces, is always redacted in an exported diagnostic bundle, and never passes through our hands. Please don't put a long-lived token on a shared machine or one whose backups others can read.\n\nNo key yet? Register at api.typesafe.ai and create one in the console.",
+        "data": {
+          "jev_key": "Jev API key"
+        },
+        "data_description": {
+          "jev_key": "Looks like `apikey_…`. A wrong one never gets saved: the next step verifies it live."
+        }
+      },
+      "entities": {
+        "title": "Bind the sample policy to your devices",
+        "description": "The built-in sample is **lights on at sunset, unless I'm catching up on sleep**: after sunset it asks \"is the occupant asleep or needing quiet right now?\" and only turns the light on when the answer is no.\n\nCurtain and motion sensors **may be left empty** — this product never requires you to own a particular sensor. A missing reading is simply absent from the context handed to the model, and that absence is recorded in the trace instead of being papered over with a fake number. The fewer signals, the lower the confidence.",
+        "data": {
+          "light": "Light to turn on",
+          "cover": "Bedroom curtain (is it drawn?)",
+          "motion": "Occupancy sensor (how long since any movement?)"
+        },
+        "data_description": {
+          "cover": "Leave empty = this reading is not collected.",
+          "motion": "Any binary sensor that falls back to off when nobody is around works: presence, motion, even a door sensor."
+        }
+      }
+    },
+    "error": {
+      "auth_failed": "Jev rejected this key (authentication failed). Check it hasn't expired and has no stray spaces, or try another one.",
+      "timeout": "Jev didn't answer in time. This does happen on cross-border links — try again; if it keeps failing, check that this machine can reach api.typesafe.ai.",
+      "unreachable": "Can't reach api.typesafe.ai. Check the network, DNS, or whether a local proxy is blocking this domain.",
+      "http_error": "Jev returned an error status. Retry shortly; if it persists, check the status page at api.typesafe.ai."
+    },
+    "abort": {
+      "already_configured": "This Home Assistant already has one instance configured. Thresholds and policies live inside its configuration — a second one would turn \"which threshold is in effect\" into two competing sources of truth."
+    }
+  }
+}

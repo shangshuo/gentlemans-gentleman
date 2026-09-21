@@ -11,7 +11,7 @@ from typing import Callable
 
 from . import context as _context
 from .decide import decide, fallback
-from .models import Action, DecisionRequest, Policy, Verdict
+from .models import Action, DecisionRequest, Policy, Snapshot, Verdict
 from .ports import DecisionProvider, ExternalContextProvider, PlatformAdapter, ProviderUnavailable
 from .trace import Tracer, new_trace_id
 
@@ -20,10 +20,18 @@ SAMPLES_ON_TRIAL = 3      # 一次试跑采样几次；日常运行只采 1 次�
 
 @dataclass
 class Outcome:
+    """一条策略在这一轮里的完整交代。
+
+    `snapshot` 是给宿主看的：ADR-0012 要求状态实体的 attributes 里有"本次上下文的
+    读数摘要"，而那份读数只在采集点存在过一次——不留在这里，界面就只能给用户一个
+    没有依据的状态名。
+    """
+
     policy_id: str
     verdict: Verdict
     executed: tuple[Action, ...] = ()
     skipped_reason: str = ""
+    snapshot: Snapshot | None = None
 
 
 @dataclass
@@ -56,8 +64,8 @@ class Engine:
 
         verdicts: list[tuple[Policy, Verdict]] = []
         for policy in live:
-            verdict = self._evaluate(policy, at, trace_id, samples)
-            report.outcomes.append(Outcome(policy.id, verdict))
+            verdict, snapshot = self._evaluate(policy, at, trace_id, samples)
+            report.outcomes.append(Outcome(policy.id, verdict, snapshot=snapshot))
             if verdict.actions:          # 回退动作同样要真发出去——"什么都不做"不是安全选项
                 verdicts.append((policy, verdict))
 
@@ -66,7 +74,8 @@ class Engine:
 
     # ------------------------------------------------------------ 单条判断链
 
-    def _evaluate(self, policy: Policy, at: str, trace_id: str, samples: int) -> Verdict:
+    def _evaluate(self, policy: Policy, at: str, trace_id: str, samples: int
+                  ) -> tuple[Verdict, Snapshot]:
         snapshot, failures = _context.collect(policy, self.adapter, self.external, at)
         self.tracer.record(trace_id, "snapshot", policy_id=policy.id,
                            snapshot=snapshot.to_dict(), failures=failures)
@@ -83,17 +92,19 @@ class Engine:
                 self.tracer.record(trace_id, "provider_error", policy_id=policy.id,
                                    error=str(exc))
                 return self._finish(trace_id, policy,
-                                    fallback(policy, f"模型不可达：{exc}", tuple(responses)))
+                                    fallback(policy, f"模型不可达：{exc}", tuple(responses)),
+                                    snapshot)
             responses.append(response)
             self.tracer.record(trace_id, "decision_response", policy_id=policy.id,
                                **response.to_dict())
 
         verdict = decide(policy, responses)
-        return self._finish(trace_id, policy, verdict)
+        return self._finish(trace_id, policy, verdict, snapshot)
 
-    def _finish(self, trace_id: str, policy: Policy, verdict: Verdict) -> Verdict:
+    def _finish(self, trace_id: str, policy: Policy, verdict: Verdict,
+                snapshot: Snapshot) -> tuple[Verdict, Snapshot]:
         self.tracer.record(trace_id, "verdict", policy_id=policy.id, **verdict.to_dict())
-        return verdict
+        return verdict, snapshot
 
     # ---------------------------------------------- 跨策略仲裁与执行（ADR-0010）
 

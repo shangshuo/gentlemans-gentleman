@@ -1,0 +1,16 @@
+run_cycle:
+  name: 跑一轮判断
+  description: >
+    立刻把所有启用的策略走一遍完整判断链（读数 → 模型判断 → 动作门 → 执行 → 留痕）。
+    不用等到日落，装完就能看到第一条留痕。
+    samples 大于 1 就是试跑：同一个现场判断 N 次，看分布，但只执行一次。
+  fields:
+    samples:
+      name: 判断次数
+      description: >
+        1＝日常运行；3＝试跑看分布；上限 10。中位数在第 5 次之后基本不动，多问只是多花钱。
+      selector:
+        number:
+          min: 1
+          max: 10
+          step: 1

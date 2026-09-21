@@ -276,16 +276,20 @@ class Verdict:
     """动作门的输出。**判断成功不等于执行成功**，两者绝不混记。"""
 
     status: str                       # 状态名（模型给的定性描述）
-    outcome: str                      # executed | suppressed | fallback | error
+    outcome: str                      # execute | noop | suppressed | fallback
     reason: str
     actions: tuple[Action, ...] = ()
     samples: tuple[DecisionResponse, ...] = ()
     branch_index: int | None = None
     dropped: tuple[tuple[Action, str], ...] = ()   # 被安全/仲裁丢弃的动作与理由
+    #: 真正与阈值比较的那个数。三种形状算法不同（是非＝"是"的概率中位数、多选一＝
+    #: 多数选项的置信度中位数、有序打分＝置信度中位数），所以只能由动作门给出——
+    #: 让界面自己去猜（读留痕文本？），界面与决策就会分叉（ADR-0012）。
+    probability: float | None = None
 
     def to_dict(self) -> dict:
         return {"status": self.status, "outcome": self.outcome, "reason": self.reason,
-                "branch_index": self.branch_index,
+                "probability": self.probability, "branch_index": self.branch_index,
                 "actions": [a.to_dict() for a in self.actions],
                 "samples": [s.to_dict() for s in self.samples],
                 "dropped": [[a.to_dict(), why] for a, why in self.dropped]}

@@ -40,11 +40,12 @@ def fallback(policy: Policy, reason: str,
 # ------------------------------------------------------------------ 三种形状
 
 def _decide_binary(policy: Policy, j: Judgment, samples) -> Verdict:
-    p_yes = median([s.confidence for s in samples])
+    p_yes = round(median([s.confidence for s in samples]), 4)
     value = p_yes >= j.threshold
     op = "≥" if value else "<"
     return _emit(policy, j, j.status_for(value), samples, value,
-                 f"对「是」的把握中位数 {p_yes:.2f} {op} 阈值 {j.threshold:.2f}")
+                 f"对「是」的把握中位数 {p_yes:.2f} {op} 阈值 {j.threshold:.2f}",
+                 probability=p_yes)
 
 
 def _decide_choice(policy: Policy, j: Judgment, samples) -> Verdict:
@@ -54,51 +55,57 @@ def _decide_choice(policy: Policy, j: Judgment, samples) -> Verdict:
     value = max(grouped, key=lambda k: (len(grouped[k]), median(grouped[k])))
     conf = median(grouped[value])
     status = j.status_for(value)
+    conf = round(conf, 4)
     if conf < j.threshold:
         return _verdict(policy, status, "suppressed",
                         f"多数选项 {value} 的置信度中位数 {conf:.2f} < 阈值 {j.threshold:.2f}",
-                        samples)
+                        samples, probability=conf)
     return _emit(policy, j, status, samples, value,
                  f"{len(grouped[value])}/{len(samples)} 次判定为 {value}，"
-                 f"置信度中位数 {conf:.2f} ≥ 阈值 {j.threshold:.2f}")
+                 f"置信度中位数 {conf:.2f} ≥ 阈值 {j.threshold:.2f}", probability=conf)
 
 
 def _decide_ordinal(policy: Policy, j: Judgment, samples) -> Verdict:
     score = median([float(s.value) for s in samples])
     conf = median([s.confidence for s in samples])
     status = j.status_for(round(score, 2))
+    conf = round(conf, 4)
     if conf < j.threshold:
         return _verdict(policy, status, "suppressed",
                         f"打分 {score:.2f}，但置信度中位数 {conf:.2f} < 阈值 {j.threshold:.2f}",
-                        samples)
+                        samples, probability=conf)
     return _emit(policy, j, status, samples, score,
-                 f"打分中位数 {score:.2f}，置信度 {conf:.2f} ≥ 阈值 {j.threshold:.2f}")
+                 f"打分中位数 {score:.2f}，置信度 {conf:.2f} ≥ 阈值 {j.threshold:.2f}",
+                 probability=conf)
 
 
 # -------------------------------------------------------------- 分支与筛查
 
-def _emit(policy: Policy, j: Judgment, status: str, samples, value, reason: str) -> Verdict:
+def _emit(policy: Policy, j: Judgment, status: str, samples, value, reason: str,
+          probability: float | None = None) -> Verdict:
     index, actions = _match_branch(policy, value)
     if index is None:
         return _verdict(policy, status, "suppressed",
-                        f"{reason}；但判断值 {value!r} 没有对应分支，不动手", samples)
+                        f"{reason}；但判断值 {value!r} 没有对应分支，不动手", samples,
+                        probability=probability)
     kept, dropped = _screen(policy, actions)
     if not kept:
         if dropped:      # 想动但被安全策略拦下
             return _verdict(policy, status, "suppressed",
                             f"{reason}；动作被安全策略拦下：" + "；".join(w for _, w in dropped),
-                            samples, tuple(dropped), branch_index=index)
+                            samples, tuple(dropped), index, probability=probability)
         # 命中的分支本来就是"什么都不做"——这是决定，不是被拦
         return _verdict(policy, status, "noop", f"{reason}；按该分支不该动手", samples,
-                        (), index)
+                        (), index, probability=probability)
     return _verdict(policy, status, "execute", reason, samples, tuple(dropped),
-                    index, tuple(kept))
+                    index, tuple(kept), probability=probability)
 
 
 def _verdict(policy: Policy, status: str, outcome: str, reason: str, samples,
-             dropped=(), branch_index=None, actions=()) -> Verdict:
+             dropped=(), branch_index=None, actions=(), probability=None) -> Verdict:
     return Verdict(status=status, outcome=outcome, reason=reason, actions=actions,
-                   samples=tuple(samples), branch_index=branch_index, dropped=dropped)
+                   samples=tuple(samples), branch_index=branch_index, dropped=dropped,
+                   probability=probability)
 
 
 def _match_branch(policy: Policy, value) -> tuple[int | None, list[Action]]:
