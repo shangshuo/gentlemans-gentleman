@@ -1,0 +1,11 @@
+{
+  "domain": "gentlemans_gentleman",
+  "name": "Gentleman's Gentleman",
+  "version": "0.1.0",
+  "config_flow": true,
+  "requirements": [],
+  "codeowners": [],
+  "documentation": "https://github.com/shangshuo/gentlemans-gentleman",
+  "issue_tracker": "https://github.com/shangshuo/gentlemans-gentleman/issues",
+  "description": "用判别式模型读数与外部事实，判断屋子当前处于什么状态，再决定是否动手——替你写掉那些覆盖不全的 if-else 自动化。"
+}
