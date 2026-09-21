@@ -1,6 +1,4 @@
 {
   "name": "Gentleman's Gentleman",
-  "render_readme": true,
-  "zip_release": true,
-  "filename": "gentlemans_gentleman.zip"
+  "render_readme": true
 }
