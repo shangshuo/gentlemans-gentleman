@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.redact import async_redact_data
 
+from .butler.trace import compile_summary
 from .const import CONF_COMPILER_KEY, CONF_DECISION_KEY, DOMAIN
 from .runtime import ButlerRuntime
 
@@ -38,5 +39,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant,
         "能力": runtime.external.capabilities(),
         "本次进程 HTTP 次数": runtime.external.http_calls,
     }
+    # 编译可用率的算法在内核里（`compile_summary`）：界面上看的、脚本算的、导出里的
+    # 必须是同一个函数，否则一个指标会长出三个互不相同的定义
+    diagnostics["编译小计"] = compile_summary(runtime.tracer.read())
     diagnostics["留痕文件"] = str(runtime.tracer.path)
     return diagnostics

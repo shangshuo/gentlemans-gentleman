@@ -209,6 +209,7 @@ class ButlerOptionsFlow(OptionsFlow):
 
     def __init__(self) -> None:
         self._draft: dict | None = None
+        self._compile_trace: str = ""      # 这份草稿是哪条编译链产出的（留痕配对用）
         self._catalog: list[dict] = []
         self._action: str = ""
         self._target: str = ""
@@ -312,7 +313,8 @@ class ButlerOptionsFlow(OptionsFlow):
             self._catalog = entity_catalog(self.hass, entity_ids)
             policy_id = next_policy_id(self.config_entry, intent)
             try:
-                self._draft = await runtime.async_compile(intent, entity_ids, policy_id)
+                self._draft, self._compile_trace = await runtime.async_compile(
+                    intent, entity_ids, policy_id)
             except ButlerCompileFailed as exc:
                 errors["base"] = "compile_failed"
                 reason = str(exc)
@@ -421,6 +423,16 @@ class ButlerOptionsFlow(OptionsFlow):
                 "次数": str(TRIAL_SAMPLES), "策略": policy.name})
 
     def _save(self, policy: Policy) -> ConfigFlowResult:
+        """保存＝用户在核对与试跑之后确认过了。
+
+        这一步要落进留痕：`compile_saved` 与那次编译按 trace_id 配对，才凑出
+        "编出来的草稿你到底要不要"这个比率（ADR-0017 待办①）。写在这里而不是
+        `_write` 里，是因为停用／删除也走 `_write`，它们不是"保存了一份草稿"。
+        """
+        butler = self._butler
+        if self._compile_trace and butler is not None:
+            butler.record_compile_saved(self._compile_trace)
+            self._compile_trace = ""
         policies = self._policies
         for index, existing in enumerate(policies):
             if existing.id == policy.id:

@@ -75,6 +75,7 @@ class PolicyCompiler(ABC):
     """
 
     name: str = "abstract"
+    model: str = ""      # 哪个模型给的草稿——留痕必须记得出来，与判别器同一道理
 
     @abstractmethod
     def compile(self, intent: str, catalog: list[dict], policy_id: str) -> dict:

@@ -35,7 +35,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.util import dt as dt_util
 
-from .butler import SAMPLES_ON_TRIAL, Engine, Policy, Tracer
+from .butler import (COMPILE, COMPILE_SAVED, SAMPLES_ON_TRIAL, Engine, Policy,
+                           Tracer, compile_trace_id, intent_head)
 from .butler.adapters import JevProvider, OpenAICompatCompiler, OpenMeteoProvider
 from .butler.models import DecisionRequest, Judgment, Shape
 from .butler.ports import CompileFailed, ProviderUnavailable
@@ -237,8 +238,14 @@ class ButlerRuntime:
             return statuses
         return {key: value for key, value in statuses.items() if key == policy_id}
 
-    async def async_compile(self, intent: str, entity_ids: list[str], policy_id: str) -> dict:
-        """把一段意图编译成草稿。跑在 executor 上——一次编译以十秒计。"""
+    async def async_compile(self, intent: str, entity_ids: list[str], policy_id: str
+                            ) -> tuple[dict, str]:
+        """把一段意图编译成草稿，返回（草稿，这条编译链的留痕 id）。
+
+        **每次编译都记一行**（成或败都记）：ADR-0017 待办①"编译可用率"要的数字必须从
+        真实使用里长出来，而不是让用户另开终端跑脚本——那等于在产品的 UI 配置之外再开
+        一个凭据来源与一条只有开发者会走的路（A2 总原则把它判为产品缺陷）。
+        """
         catalog = entity_catalog(self.hass, entity_ids)
         if len(catalog) != len(entity_ids):
             raise ButlerCompileFailed("勾选的实体里有已经不存在的，去掉它再试一次")
@@ -246,15 +253,34 @@ class ButlerRuntime:
         if compiler is None:
             raise ButlerCompileFailed("还没有配置编译器：在集成配置里填上编译端点，"
                                       "或者先用表单手工补一条策略")
+        trace_id = compile_trace_id()
 
         def call() -> dict:
             return compiler.compile(intent, catalog, policy_id)
 
+        started = self.engine.clock()
         try:
-            return await self.hass.async_add_executor_job(call)
+            draft = await self.hass.async_add_executor_job(call)
         except CompileFailed as exc:
+            self.tracer.record(trace_id, COMPILE, ok=False, reason=str(exc),
+                               intent_head=intent_head(intent), intent_len=len(intent),
+                               compiler=compiler.model)
             _LOGGER.info("编译失败：%s", exc)
             raise ButlerCompileFailed(str(exc)) from exc
+        self.tracer.record(
+            trace_id, COMPILE, ok=True, intent_head=intent_head(intent),
+            intent_len=len(intent), compiler=compiler.model,
+            草稿={"name": draft["name"], "形状": draft["judgment"]["shape"],
+                  "阈值": draft["judgment"]["threshold"],
+                  "读数": [r["key"] for r in draft["readings"]],
+                  "动作": [f"{a['verb']} {a['entity_id']}"
+                           for b in draft["branches"] for a in b["actions"]]},
+            耗时秒=round(self.engine.clock() - started, 2))
+        return draft, trace_id
+
+    def record_compile_saved(self, trace_id: str) -> None:
+        """草稿被用户保存——这是"可用率"的分子，与"编译"那一行按 trace_id 配对。"""
+        self.tracer.record(trace_id, COMPILE_SAVED)
 
     def policy(self, policy_id: str) -> Policy | None:
         return next((p for p in self.policies if p.id == policy_id), None)

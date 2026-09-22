@@ -7,7 +7,8 @@ from .models import (COMPUTED, EXTERNAL, INFERRED, OBSERVED, Action, Branch,
 from .ports import (CompileFailed, DecisionProvider, ExternalContextProvider,
                     PlatformAdapter, PolicyCompiler, ProviderUnavailable)
 from .samples import SAMPLE_POLICIES, sample_policy
-from .trace import Tracer, new_trace_id
+from .trace import (COMPILE, COMPILE_SAVED, Tracer, compile_summary,
+                     compile_trace_id, intent_head, new_trace_id)
 
 __all__ = [
     "OBSERVED", "COMPUTED", "EXTERNAL", "INFERRED",
@@ -17,5 +18,7 @@ __all__ = [
     "ExternalContextProvider", "PolicyCompiler", "ProviderUnavailable",
     "CompileFailed",
     "decide", "fallback", "Engine", "CycleReport", "Outcome", "SAMPLES_ON_TRIAL",
-    "Tracer", "new_trace_id", "SAMPLE_POLICIES", "sample_policy",
+    "Tracer", "new_trace_id", "compile_summary", "compile_trace_id",
+    "intent_head", "COMPILE", "COMPILE_SAVED",
+    "SAMPLE_POLICIES", "sample_policy",
 ]
