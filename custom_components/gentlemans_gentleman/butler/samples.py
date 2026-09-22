@@ -32,7 +32,12 @@ SUNSET_LIGHT = {
             {"entity_id": "light.bedroom", "verb": "turn_on", "params": {}}]},
         {"when": {}, "actions": []},          # 在补觉：什么都不做，别照醒他
     ],
-    "safety": {"cooldown_seconds": 1800},
+    "safety": {
+        # 候选实体集在真实策略里由薄壳写入（ADR-0017 第 4 条）；样例是文档，
+        # 就把它照实写出来——空白名单现在意味着"什么都不许做"，不写就等于教错。
+        "allowed_entities": ["binary_sensor.motion", "cover.bedroom", "light.bedroom"],
+        "cooldown_seconds": 1800,
+    },
     "enabled": True,
 }
 

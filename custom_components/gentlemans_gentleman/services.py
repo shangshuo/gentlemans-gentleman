@@ -37,7 +37,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def handle(call: ServiceCall) -> None:
         runtimes = _runtimes(hass)
         if not runtimes:
-            raise HomeAssistantError("还没有配置好的实例：先在集成配置里完成 Jev Key 校验")
+            raise HomeAssistantError("还没有配置好的实例：先在集成配置里完成判别器的连通校验")
         samples = call.data.get("samples", 1)
         for runtime in runtimes:
             await runtime.async_run("手动", samples=samples)

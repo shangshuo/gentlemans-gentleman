@@ -14,12 +14,31 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import (CONF_DECISION_BASE_URL, DEFAULT_DECISION_BASE_URL, DOMAIN,
+                    LEGACY_KEYS)
 from .runtime import ButlerRuntime
 from .services import async_setup_services, async_unload_services
 
 PLATFORMS = [Platform.SENSOR]
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """v0.1 的 entry 只有 `jev_key`/`jev_model`：改名搬过来，编译器留给用户自己填。
+
+    这个函数**必须待在集成根模块里**——HA 是在 `component.async_migrate_entry` 上找它的
+    （config_entries.py 的 `ConfigEntry.async_migrate`），写在 ConfigFlow 类上等于没写。
+    """
+    if entry.version == 2:
+        return True
+    data = dict(entry.data)
+    for old, new in LEGACY_KEYS.items():
+        if old in data:
+            data[new] = data.pop(old)
+    data.setdefault(CONF_DECISION_BASE_URL, DEFAULT_DECISION_BASE_URL)
+    hass.config_entries.async_update_entry(entry, data=data, version=2)
+    _LOGGER.info("配置已从 v1 迁到 v2：判别器字段改名，编译器待你在\"配置\"里补")
+    return True
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

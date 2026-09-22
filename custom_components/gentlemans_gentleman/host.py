@@ -48,6 +48,11 @@ VERB_SERVICES: dict[str, dict[str, str]] = {
 VALUE_ATTR: dict[str, str] = {"cover": "current_position"}
 
 
+def verbs_for(domain: str) -> list[str]:
+    """这个域会做哪些动词。候选实体集带它，编译器才知道自己不许发明 `blink`。"""
+    return sorted(verb for verb, domains in VERB_SERVICES.items() if domain in domains)
+
+
 def coerce(raw: Any) -> Any:
     """HA 的状态一律是字符串；能读成数字就读成数字，喂给模型的上下文才不像一堆引号。
 

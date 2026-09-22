@@ -260,7 +260,12 @@ class DecisionRequest:
 
 @dataclass(frozen=True)
 class DecisionResponse:
-    """一次判断的返回。必须记住是哪个模型给的——今天的留痕是明天的实验数据。"""
+    """一次判断的返回。必须记住是哪个模型给的——今天的留痕是明天的实验数据。
+
+    **`confidence` 的含义随形状固定**，聚合算法依赖它（`decide.py`）：
+    是非＝"是"的概率本身（所以答"否"的样本这个数就小，中位数才等于多数意见）；
+    多选一＝模型自陈的确信（实测**不等于**最大选项的概率）；有序打分＝档位置信度。
+    """
 
     value: Any
     confidence: float

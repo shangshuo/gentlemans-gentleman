@@ -11,7 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.redact import async_redact_data
 
-from .const import CONF_JEV_KEY, DOMAIN
+from .const import CONF_COMPILER_KEY, CONF_DECISION_KEY, DOMAIN
 from .runtime import ButlerRuntime
 
 
@@ -20,8 +20,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant,
     """一份"能定位问题但不含密钥"的现场快照。"""
     runtime: ButlerRuntime | None = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     # 用整段 REDACTED 而不是"留首尾四个字符"：那八个字符仍是这把 Key 的一部分，
-    # 而诊断包是要发给别人看的
-    data = async_redact_data(dict(entry.data), {CONF_JEV_KEY})
+    # 而诊断包是要发给别人看的。两把 Key 都在名单里（A3）
+    data = async_redact_data(dict(entry.data), {CONF_DECISION_KEY, CONF_COMPILER_KEY})
     diagnostics: dict = {
         "配置": data,
         "策略": [{"id": p.id, "名字": p.name, "启用": p.enabled,

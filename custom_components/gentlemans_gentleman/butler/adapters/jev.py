@@ -45,16 +45,23 @@ QUESTION_ID = "q"          # 一次往返只问一件事：状态作用域是每
 
 
 class JevProvider(DecisionProvider):
-    """一次 `evaluate` = 一次 HTTP = 一次采样。采样次数归内核管（引擎负责多采）。"""
+    """一次 `evaluate` = 一次 HTTP = 一次采样。采样次数归内核管（引擎负责多采）。
+
+    `base_url` 可换端点，但**换不了方言**：说这套请求/响应形状的实现才能进来（修正案 A4
+    把这件事写在明面上，免得界面给出一个假的"可配"）。
+    """
 
     name = "jev_cloud"
 
-    def __init__(self, api_key: str, *, model: str = "jev-latest",
+    def __init__(self, api_key: str, *, model: str = "jev-latest", base_url: str = ENDPOINT,
                  timeout_seconds: float = 3.0, opener: Callable | None = None):
         if not api_key:
             raise ValueError("Jev 需要 API Key：空的 Key 只会让每次判断都走回退")
+        if not (base_url or "").strip():
+            raise ValueError("判别器需要 base_url，留空等于每次判断都走回退")
         self.api_key = api_key
         self.model = model
+        self.base_url = base_url.strip()
         self.timeout_seconds = timeout_seconds
         self._open = opener or urllib.request.urlopen
 
@@ -70,7 +77,7 @@ class JevProvider(DecisionProvider):
         payload = json.dumps({"state": request.state_text, "model": self.model,
                               "questions": {QUESTION_ID: _question(request.judgment)}},
                              ensure_ascii=False).encode("utf-8")
-        req = urllib.request.Request(ENDPOINT, data=payload, method="POST", headers={
+        req = urllib.request.Request(self.base_url, data=payload, method="POST", headers={
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"})
         try:

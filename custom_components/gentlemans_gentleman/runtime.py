@@ -36,14 +36,17 @@ from homeassistant.helpers.event import async_call_later, async_track_time_inter
 from homeassistant.util import dt as dt_util
 
 from .butler import SAMPLES_ON_TRIAL, Engine, Policy, Tracer
-from .butler.adapters import JevProvider, OpenMeteoProvider
+from .butler.adapters import JevProvider, OpenAICompatCompiler, OpenMeteoProvider
 from .butler.models import DecisionRequest, Judgment, Shape
-from .butler.ports import ProviderUnavailable
-from .const import (CONF_JEV_KEY, CONF_JEV_MODEL, CONF_TIMEOUT, CYCLE_TIMEOUT,
-                    DEFAULT_JEV_MODEL, DEFAULT_TIMEOUT, DOMAIN, EXTERNAL_TTL,
+from .butler.ports import CompileFailed, ProviderUnavailable
+from .const import (COMPILER_TIMEOUT, CONF_COMPILER_BASE_URL, CONF_COMPILER_KEY,
+                    CONF_COMPILER_MODEL, CONF_DECISION_BASE_URL, CONF_DECISION_KEY,
+                    CONF_DECISION_MODEL, CONF_TIMEOUT, CYCLE_TIMEOUT,
+                    DEFAULT_COMPILER_MODEL, DEFAULT_DECISION_BASE_URL,
+                    DEFAULT_DECISION_MODEL, DEFAULT_TIMEOUT, DOMAIN, EXTERNAL_TTL,
                     TRIGGER_INTERVAL, TRIGGER_SUNRISE, TRIGGER_SUNSET)
 from .host import HaHost
-from .policies import external_keys, load
+from .policies import entity_catalog, external_keys, load
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,10 +100,14 @@ class ButlerRuntime:
         self.policies: list[Policy] = load(entry)
         self.status: dict[str, PolicyStatus] = {}
         self.host = HaHost(hass)
-        self.provider = JevProvider(entry.data.get(CONF_JEV_KEY, ""),
-                                    model=entry.data.get(CONF_JEV_MODEL, DEFAULT_JEV_MODEL),
-                                    timeout_seconds=float(entry.data.get(CONF_TIMEOUT,
-                                                                         DEFAULT_TIMEOUT)))
+        self.provider = JevProvider(entry.data.get(CONF_DECISION_KEY, ""),
+                                    model=entry.data.get(CONF_DECISION_MODEL,
+                                                         DEFAULT_DECISION_MODEL),
+                                    base_url=entry.data.get(CONF_DECISION_BASE_URL,
+                                                            DEFAULT_DECISION_BASE_URL),
+                                    timeout_seconds=float(entry.data.get(
+                                        CONF_TIMEOUT, DEFAULT_TIMEOUT)))
+        self.compiler = _compiler(entry.data)
         self.external = OpenMeteoProvider(hass.config.latitude, hass.config.longitude)
         self.tracer = Tracer(Path(hass.config.path("traces", f"{DOMAIN}.jsonl")))
         self.engine = Engine(self.host, self.provider, self.tracer, external=self.external)
@@ -186,12 +193,16 @@ class ButlerRuntime:
 
         self.entry.async_on_unload(async_call_later(self.hass, seconds, delayed))
 
-    async def async_run(self, reason: str, samples: int = 1) -> dict[str, PolicyStatus]:
+    async def async_run(self, reason: str, samples: int = 1,
+                        policies: list[Policy] | None = None) -> dict[str, PolicyStatus]:
         """跑一轮。`samples` > 1 就是**试跑**——同一条路径，只是多采几次（ADR-0009）。
 
+        `policies` 是给向导用的"含未保存草稿"的那一份：草稿试跑走的是与日常**完全相同**
+        的代码路径（ADR-0009 不许为试跑特判），只是这一次要看的策略清单由界面提供。
         返回本轮之后的全部状态；试跑要看的 N 个采样在 `PolicyStatus.samples` 里。
         """
-        if not self.policies:
+        chain = self.policies if policies is None else policies
+        if not chain:
             return self.status
         async with self._lock:
             at = dt_util.now().isoformat(timespec="seconds")
@@ -201,7 +212,7 @@ class ButlerRuntime:
                 # core.py:2828），设备卡住时只有这一层能放手。
                 report = await asyncio.wait_for(
                     self.hass.async_add_executor_job(
-                        self.engine.run_cycle, self.policies, at, samples),
+                        self.engine.run_cycle, chain, at, samples),
                     CYCLE_TIMEOUT)
             except TimeoutError as exc:
                 _LOGGER.error("%s：一轮判断超过 %ss 没跑完，这一轮作废。"
@@ -211,20 +222,39 @@ class ButlerRuntime:
                 _LOGGER.exception("%s 这一轮判断链没跑完", reason)
                 raise ButlerRunFailed(str(exc)) from exc
             for outcome in report.outcomes:
-                self.status[outcome.policy_id] = _status_of(outcome, report.trace_id, at,
-                                                            self.policies)
+                self.status[outcome.policy_id] = _status_of(outcome, report.trace_id, at, chain)
             self._notify()
             acted = sum(1 for o in report.outcomes if o.executed)
             _LOGGER.info("%s：判断 %d 条 × %d 次，动手 %d 条，留痕 %s",
                          reason, len(report.outcomes), samples, acted, report.trace_id)
             return self.status
 
-    async def async_trial(self, policy_id: str | None = None) -> dict[str, PolicyStatus]:
+    async def async_trial(self, policy_id: str | None = None,
+                          policies: list[Policy] | None = None) -> dict[str, PolicyStatus]:
         """试跑入口（向导用）。同一条路径，只是采样次数换成试跑的次数。"""
-        statuses = await self.async_run("试跑", samples=SAMPLES_ON_TRIAL)
+        statuses = await self.async_run("试跑", samples=SAMPLES_ON_TRIAL, policies=policies)
         if policy_id is None:
             return statuses
         return {key: value for key, value in statuses.items() if key == policy_id}
+
+    async def async_compile(self, intent: str, entity_ids: list[str], policy_id: str) -> dict:
+        """把一段意图编译成草稿。跑在 executor 上——一次编译以十秒计。"""
+        catalog = entity_catalog(self.hass, entity_ids)
+        if len(catalog) != len(entity_ids):
+            raise ButlerCompileFailed("勾选的实体里有已经不存在的，去掉它再试一次")
+        compiler = self.compiler
+        if compiler is None:
+            raise ButlerCompileFailed("还没有配置编译器：在集成配置里填上编译端点，"
+                                      "或者先用表单手工补一条策略")
+
+        def call() -> dict:
+            return compiler.compile(intent, catalog, policy_id)
+
+        try:
+            return await self.hass.async_add_executor_job(call)
+        except CompileFailed as exc:
+            _LOGGER.info("编译失败：%s", exc)
+            raise ButlerCompileFailed(str(exc)) from exc
 
     def policy(self, policy_id: str) -> Policy | None:
         return next((p for p in self.policies if p.id == policy_id), None)
@@ -249,6 +279,20 @@ class ButlerRuntime:
 
 class ButlerRunFailed(HomeAssistantError):
     """一轮判断链在宿主侧炸了。给服务调用看的是人话，不是 traceback。"""
+
+
+class ButlerCompileFailed(HomeAssistantError):
+    """编译不出草稿。给界面看的是"哪一项不合规、去改哪里"，不是 traceback（A4 第二道闸门）。"""
+
+
+def _compiler(data: dict) -> OpenAICompatCompiler | None:
+    """编译器只在填表时用：没配端点就返回 None，运行期一行代码都不为它改变。"""
+    base_url = (data.get(CONF_COMPILER_BASE_URL) or "").strip()
+    model = (data.get(CONF_COMPILER_MODEL) or DEFAULT_COMPILER_MODEL).strip()
+    if not base_url or not model:
+        return None
+    return OpenAICompatCompiler(base_url, model, data.get(CONF_COMPILER_KEY, ""),
+                                timeout_seconds=COMPILER_TIMEOUT)
 
 
 def _status_of(outcome, trace_id: str, at: str, policies: list[Policy]) -> PolicyStatus:

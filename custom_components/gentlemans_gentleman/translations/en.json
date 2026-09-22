@@ -2,37 +2,146 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to Jev",
-        "description": "This integration uses a fast intuitive model to decide *what state the home is in right now*. The built-in first provider is Jev (`api.typesafe.ai`), and it needs your API key.\n\n**What happens next**: we send one very short probe request (its content is literally \"did this message get through?\" — no home data at all) to confirm the key works. That also pays the cross-border TLS handshake now, while you are filling in the form, instead of during a 2am trigger.\n\n**About how this key is stored, said up front**: Home Assistant keeps integration configuration in plain text under `.storage` (file mode 0644); the platform gives integrations no way to encrypt it. What we can promise instead is that the key never reaches logs or traces, is always redacted in an exported diagnostic bundle, and never passes through our hands. Please don't put a long-lived token on a shared machine or one whose backups others can read.\n\nNo key yet? Register at api.typesafe.ai and create one in the console.",
+        "title": "Connect the judge (runtime decisions)",
+        "description": "This integration asks a **fast discriminative model** what state the house is in. The default is Jev (`api.typesafe.ai`), but endpoint, model name and key are all yours to change — anything speaking the same request shape can replace it.\n\n**What happens next**: we send one very short probe (its content is only \"did this message arrive?\", no home data) to confirm the endpoint answers — and you pay the 1–2s cross-border TLS handshake now, while filling a form, instead of during a night-time trigger.\n\n**About how this key is stored, said up front**: Home Assistant keeps integration config in plaintext under `.storage/` (mode 0644); the platform gives custom integrations no way to encrypt it. What we can promise: it never reaches logs or traces, it is always redacted in the diagnostics export, and we never handle it. Do not put a long-lived token on a shared machine or one whose backups others can read.",
         "data": {
-          "jev_key": "Jev API key"
+          "decision_base_url": "Endpoint URL",
+          "decision_model": "Model name",
+          "decision_key": "API key"
         },
         "data_description": {
-          "jev_key": "Looks like `apikey_…`. A wrong one never gets saved: the next step verifies it live."
+          "decision_base_url": "Defaults to `https://api.typesafe.ai/v1/systemone`. A self-hosted endpoint must answer the same request shape (`state`/`questions`) — not every inference server does.",
+          "decision_model": "Like `jev-latest`. Empty falls back to the default.",
+          "decision_key": "Looks like `apikey_…`. A wrong one is not saved: the next step verifies it."
         }
       },
-      "entities": {
-        "title": "Bind the sample policy to your devices",
-        "description": "The built-in sample is **lights on at sunset, unless I'm catching up on sleep**: after sunset it asks \"is the occupant asleep or needing quiet right now?\" and only turns the light on when the answer is no.\n\nCurtain and motion sensors **may be left empty** — this product never requires you to own a particular sensor. A missing reading is simply absent from the context handed to the model, and that absence is recorded in the trace instead of being papered over with a fake number. The fewer signals, the lower the confidence.",
+      "compiler": {
+        "title": "Connect the compiler (ideas → policies)",
+        "description": "The second model role: **you write what you want in plain words, the compiler turns it into a policy draft**, you review it on a form, trial it, and only then is it saved. The judge has only three discriminative primitives and no generation ability, so this step needs another model — any endpoint speaking OpenAI-compatible `chat/completions`, including one running on this machine.\n\n**You can skip it**: leave URL and model empty and the judge still works at runtime; the cost is that \"add a policy from a sentence\" stays unavailable until you configure it.",
         "data": {
-          "light": "Light to turn on",
-          "cover": "Bedroom curtain (is it drawn?)",
-          "motion": "Occupancy sensor (how long since any movement?)"
+          "compiler_base_url": "Endpoint URL",
+          "compiler_model": "Model name",
+          "compiler_key": "API key"
         },
         "data_description": {
-          "cover": "Leave empty = this reading is not collected.",
-          "motion": "Any binary sensor that falls back to off when nobody is around works: presence, motion, even a door sensor."
+          "compiler_base_url": "e.g. `https://api.openai.com/v1`, or local `http://127.0.0.1:11434/v1`. `host:port` alone works too — we add the scheme.",
+          "compiler_model": "e.g. `gpt-4o-mini`, `qwen2.5:14b`. It has to be able to emit plain JSON.",
+          "compiler_key": "Local endpoints usually need none; leave it empty."
         }
       }
     },
     "error": {
-      "auth_failed": "Jev rejected this key (authentication failed). Check it hasn't expired and has no stray spaces, or try another one.",
-      "timeout": "Jev didn't answer in time. This does happen on cross-border links — try again; if it keeps failing, check that this machine can reach api.typesafe.ai.",
-      "unreachable": "Can't reach api.typesafe.ai. Check the network, DNS, or whether a local proxy is blocking this domain.",
-      "http_error": "Jev returned an error status. Retry shortly; if it persists, check the status page at api.typesafe.ai."
+      "auth_failed": "The judge rejected this key (auth failed). Check it is not expired, has no stray spaces, or try another one.",
+      "timeout": "The judge did not answer in time. This happens on slow cross-border links — retry once; if it keeps failing, check that this machine can reach that endpoint.",
+      "unreachable": "Cannot reach the judge endpoint. Check network, DNS, or a local proxy blocking the domain.",
+      "http_error": "The judge returned an error status. Retry later; if it persists check the provider status page.",
+      "bad_url": "That endpoint URL is unusable. Write it as `http://host:port/v1` or `https://example.com/v1`, with the scheme.",
+      "compiler_bad": "The compiler did not pass this check. Likely causes: wrong URL or model name, the endpoint does not serve `chat/completions`, or it wraps JSON in prose. You can skip and configure it later.",
+      "compile_failed": "This idea did not compile into a policy. The reason is below.",
+      "draft_invalid": "Your change made the draft invalid; the reason is below."
     },
     "abort": {
-      "already_configured": "This Home Assistant already has one instance configured. Thresholds and policies live inside its configuration — a second one would turn \"which threshold is in effect\" into two competing sources of truth."
+      "already_configured": "This Home Assistant already has one instance configured. **Adding another piece of smart control does not mean installing again**: open this integration's Configure dialog and add a policy from a sentence. A second instance would make \"which threshold is live\" two sources of truth.",
+      "not_ready": "The integration is not running right now (bad config or reloading). Fix that before managing policies."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart controls",
+        "description": "**Current policies**\n\n{策略清单}\n\nPick what to do.",
+        "data": {
+          "action": "What to do"
+        }
+      },
+      "pick": {
+        "title": "Pick a policy",
+        "description": "Each entry is its own \"when to look, which readings, what to ask, whether to act\". When two policies point at the same device, **the later verdict wins**, but the override is always traced — never silent.",
+        "data": {
+          "policy": "Which one"
+        }
+      },
+      "delete_confirm": {
+        "title": "Confirm delete",
+        "description": "This deletes “{策略}”. Its history stays in the local `traces/` file, but the policy itself cannot be restored.",
+        "data": {
+          "confirm": "Confirm"
+        },
+        "data_description": {
+          "confirm": "It is only deleted if you choose \"delete\"."
+        }
+      },
+      "add": {
+        "title": "Add a smart control from a sentence",
+        "description": "**Plain words are enough**: when it should act, which signs it should look at, what you want achieved. No YAML, no knowledge of our internal fields.\n\nThe entities you tick below become this policy's **candidate set**, and one tick governs three things: the compiler may only choose from it, the action gate only permits entities in it, and readings may only reference it — **it cannot step outside, so it cannot overreach**.\n\n{示例}",
+        "data": {
+          "intent": "What you want",
+          "entities": "Devices this policy may touch"
+        },
+        "data_description": {
+          "intent": "e.g. After sunset, if I am still awake put the bedside lamp on dimmest; if I am catching up on sleep, do nothing.",
+          "entities": "At least one. Tick only what is genuinely relevant: the more you give, the more room the compiler has to be wrong."
+        }
+      },
+      "review": {
+        "title": "Review the draft",
+        "description": "What the compiler produced is only a **draft** — it has no right to act until you confirm it here and trial it.\n\nThis is what it proposes:\n\n{摘要}\n\nThese are the fields the form lets you change. To change the readings or the criteria, go back and rephrase the idea.\n\n{原因}",
+        "data": {
+          "name": "Policy name",
+          "question": "The question to ask the model",
+          "threshold": "Decision threshold",
+          "action_entity": "Device to act on",
+          "action_verb": "How to act",
+          "cooldown": "Cooldown seconds"
+        },
+        "data_description": {
+          "question": "This sentence goes to the model verbatim. The criteria are what it actually judges by — visible in the summary.",
+          "threshold": "For yes/no it is the probability boundary; for choice/ordinal it is a confidence floor — below it, nothing is executed. Chinese phrasing measures about 0.1 lower than English, so do not copy 0.5 blindly.",
+          "action_entity": "Only entities from the candidate set you just ticked.",
+          "cooldown": "Minimum gap between two actions from this same policy. Most \"the house is twitchy\" complaints live here."
+        }
+      },
+      "trial": {
+        "title": "Trial: real judgement, real action",
+        "description": "A trial is **not a rehearsal**: this run really asks the model {次数} times, and if an action branch matches it really operates that device (ADR-0005). Only this draft is fed in, so other policies are not touched.\n\n**This round**\n\n{结果}\n\nAdjusting the threshold is meant to be looked at again right here. Save when you are satisfied — saving is itself the confirmation.",
+        "data": {
+          "threshold": "Decision threshold",
+          "next": "Next"
+        },
+        "data_description": {
+          "threshold": "Change it and choose \"try again\" — no need to go back a step.",
+          "next": "Once saved, this policy takes part in everyday judgement immediately."
+        }
+      },
+      "settings": {
+        "title": "Global settings",
+        "description": "Both model endpoints and the budget for one judgement. Saving reloads the integration — a run in flight is discarded rather than leaving half an action behind.",
+        "data": {
+          "decision_base_url": "Judge endpoint",
+          "decision_model": "Judge model name",
+          "decision_key": "Judge key",
+          "compiler_base_url": "Compiler endpoint",
+          "compiler_model": "Compiler model name",
+          "compiler_key": "Compiler key",
+          "timeout_seconds": "Budget per judgement (seconds)"
+        },
+        "data_description": {
+          "decision_key": "Empty means \"keep it\". To replace the key, paste the whole string — the field never shows the stored value.",
+          "compiler_key": "Empty means \"keep it\". Local endpoints usually stay empty.",
+          "timeout_seconds": "Measured on a direct cross-border link: median 1.4s, peak 2.6s, and the very first request after a cold connect is the tightest. Over budget triggers the safety fallback instead of hanging."
+        }
+      }
+    },
+    "abort": {
+      "not_ready": "The integration is not running right now (bad config or reloading). Fix that before managing policies."
+    },
+    "error": {
+      "auth_failed": "The judge rejected this key. Nothing was saved — fix it and try again.",
+      "timeout": "The judge didn't answer in time. Nothing was saved — check that this machine can reach the endpoint.",
+      "unreachable": "Cannot reach the judge endpoint. Nothing was saved: check network, DNS or a local proxy.",
+      "http_error": "The judge returned an error status. Nothing was saved; retry later or switch back.",
+      "bad_url": "Unusable endpoint URL. Write it as `http://host:port/v1` or `https://example.com/v1`.",
+      "compiler_bad": "The compiler failed this check (URL, model name, or it does not serve `chat/completions`). Nothing was saved."
     }
   }
 }
