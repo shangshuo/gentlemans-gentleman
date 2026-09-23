@@ -86,8 +86,14 @@ readings, plus latency and model version; keys are redacted. The trace file live
 
 ## Language
 
-The interface follows your Home Assistant language: English and 简体中文 ship in the box
-(`translations/en.json`, `translations/zh-Hans.json`). Any other language falls back to English.
+Partly, and here is exactly which part. The setup wizard — both configuration steps, every wizard
+step, field names, descriptions and error messages — follows your Home Assistant language; English
+and 简体中文 ship in the box (`translations/en.json`, `translations/zh-Hans.json`), and any other
+language falls back to English.
+**Not translated yet:** the five buttons of the policy menu, the three trial-run choices, the
+delete confirmation, and the `run_cycle` service description are hard-coded Chinese in this build.
+They are being moved into the same translation mechanism; until then an English-only installation
+will show those few strings in Chinese.
 
 ---
 
@@ -160,5 +166,9 @@ The interface follows your Home Assistant language: English and 简体中文 shi
 
 ## 界面语言
 
-界面跟随你的 Home Assistant 语言：英文与简体中文都在包里
+**只做了一半，说清楚是哪一半。** 配置向导——接入判别器与编译器的两步、流程向导的每一步、
+字段名、说明与错误提示——跟随你的 Home Assistant 语言，英文与简体中文都在包里
 （`translations/en.json`、`translations/zh-Hans.json`），其他语言回退到英文。
+**还没收进翻译机制的**：策略主菜单那五个选项、试跑的三个选择、删除确认，以及 `run_cycle`
+服务的说明文字，这一版仍是写死的中文。它们正在往同一套机制里搬；搬完之前，纯英文安装也会
+在这几处看到中文。
