@@ -1,5 +1,98 @@
 # Gentleman's Gentleman
 
+**English** · [简体中文](#简体中文)
+
+> Inspired by the British butler — **you should not have to write that automation which wakes you up.**
+
+You say what you want in one plain sentence; the system turns it into a runnable policy.
+At runtime a fast discrimination model reads your sensors and external facts, decides whether the
+house is *in the state you named*, and deterministic code then decides whether to act.
+
+```
+config time : write an idea → get a draft → you review → trial run → save
+runtime     : trigger → sensor snapshot → context → model verdict → threshold → action → full trace
+```
+
+## What this repository is
+
+An **internal-beta release repo**: it contains only the part that lands on your Home Assistant —
+the folded integration directory `custom_components/gentlemans_gentleman/` (the decision kernel
+`butler` is already inside it) plus `hacs.json`. Architectural decisions, domain-model derivations
+and the development process live in the private development repository, not here.
+
+## Install (HACS custom repository)
+
+1. HACS → three dots → **Custom repositories** → add this repository, category **Integration**.
+2. Find *Gentleman's Gentleman* → Download. **Restart Home Assistant** afterwards.
+3. Settings → Devices & Services → Add Integration → search "Gentleman's Gentleman".
+4. Configuration takes two steps: first the **discriminator** (Jev by default; endpoint, model and
+   key are all editable, and each is probed with a real call while you type it), then the
+   **compiler** (any OpenAI-compatible endpoint, including Ollama/vLLM on your own box; you may
+   also skip it for now).
+5. The policy list is **empty** after install — deliberately. Open this integration's *Configure*
+   page, choose "➕ Add a smart control from a sentence", tick which devices it may touch, write
+   one plain sentence, and follow the wizard.
+
+> Copying this repository's `custom_components/` directory straight into
+> `<config>/custom_components/` works just as well (no zip assets during the beta, see ADR-0016).
+
+## What works today
+
+| Item | Status |
+|---|---|
+| Decision kernel (`butler`, four ports) | ✅ done, 103 offline unit tests green |
+| Discriminator (Jev) + external facts (Open-Meteo) | ✅ end-to-end against the real APIs, both directions |
+| OpenAI-compatible compiler (incl. local models) | ✅ done; **compile quality not yet measured**, see boundaries |
+| HA shell: config flow, sensor, redacted diagnostics | ✅ 37 end-to-end tests green on HA 2024.12.5 and 2026.9.3 |
+| Policy CRUD + trial-run / threshold wizard | ✅ done |
+| Real-hardware check (an actual light turning on) | ✅ proven back in v0.1; to be re-run on v0.2 |
+
+## Known boundaries (stated up front)
+
+- **Two API keys**: one for the discriminator (Jev by default, `api.typesafe.ai`), one for the
+  compiler (may be left empty for a local endpoint). Home Assistant stores integration config in
+  a local plaintext file (`.storage/`, mode 0644) — that is a platform mechanism an integration
+  cannot encrypt around. What we can promise: the key never appears in logs, never in traces, and
+  is always redacted in an exported diagnostics bundle. **Do not put a long-lived token on a shared
+  machine or one whose backups others can read.**
+- **The compiler can be wrong.** It only produces a **draft**: a draft has no standing to act, and
+  nothing takes effect until you review, trial-run and save it. It can also only pick from the
+  devices you ticked — anything outside that set voids the whole draft. There is no
+  "compiled, therefore installed" in this version.
+- **One action per policy** (the v0.2 shape boundary). Write "turn on the light and close the
+  curtain" as two policies — they run in the same decision round, and when both point at the same
+  device the later verdict wins *with a recorded override*, never silently.
+- **Models misjudge.** Before anything is executed there is a deterministic action gate: the
+  candidate-entity set, mutex groups, debounce cooldowns, and a safe fallback when the model is
+  unreachable. **The AI never drives a device directly.**
+- **Judgement quality depends on your sensors.** A missing sensor is not a defect, it is the
+  precondition for this product to exist at all — but fewer sensors means less confidence.
+  Measured: Chinese phrasing scores about 0.1 lower than English, so calibrate the threshold on
+  your own site.
+- **What we are measuring during the beta.** Every "add a smart control from a sentence" writes one
+  line into `traces/` on your own HA box (the **first 30 characters** of your sentence, which model
+  answered, whether the draft validated, whether you finally saved it). That is how we learn whether
+  the compiler actually works, instead of guessing. The data stays on your machine; exporting a
+  diagnostics bundle is something you click, and keys are redacted.
+- This is a **beta**: no promise of backwards compatibility for the config format (a v0.1
+  configuration migrates automatically to the v0.2 field names).
+
+## If something misbehaves
+
+Settings → Devices & Services → Gentleman's Gentleman → **Diagnostics** (three dots → Download
+diagnostics data). You will see what each policy last decided, with what confidence, on which
+readings, plus latency and model version; keys are redacted. The trace file lives at
+`<config>/traces/gentlemans_gentleman.jsonl` — one event per line.
+
+## Language
+
+The interface follows your Home Assistant language: English and 简体中文 ship in the box
+(`translations/en.json`, `translations/zh-Hans.json`). Any other language falls back to English.
+
+---
+
+# 简体中文
+
 > 灵感来自英国管家——**你不用再写那条会照醒你的自动化**。
 
 你说一段想要什么，系统把它变成一条能跑的策略；运行期由快速判别模型读传感器与外部事实，
@@ -64,3 +157,8 @@
 设置 → 设备与服务 → Gentleman's Gentleman → **诊断**（三个点 → 下载诊断数据）。
 里面能看到每条策略最后一次判成了什么、把握度多少、依据哪些读数、耗时与模型版本；
 密钥已脱敏。留痕文件在 HA 配置目录的 `traces/gentlemans_gentleman.jsonl`，一行一个事件。
+
+## 界面语言
+
+界面跟随你的 Home Assistant 语言：英文与简体中文都在包里
+（`translations/en.json`、`translations/zh-Hans.json`），其他语言回退到英文。
